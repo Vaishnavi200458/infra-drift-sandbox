@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Infra Drift Dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2;
+  --surface: #fcfcfb;
+  --surface-2: #f0efec;
+  --border: #e2e1dc;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #7d7c77;
+  --accent: #2a78d6;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --warning-text: #8a5a00;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --critical-text: #b02a2a;
+  --running: #2a78d6;
+  --neutral: #a9a8a2;
+  --log-bg: #1a1a19;
+  --log-text: #e6e5e0;
+  --shadow: 0 1px 2px rgba(0,0,0,.05);
+  --mono: ui-monospace, "Cascadia Code", "Consolas", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #2f2f2c;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e87; --accent: #3987e5;
+    --good-text: #4fcf4f; --warning-text: #fab219; --critical-text: #f07070;
+    --running: #3987e5; --neutral: #6b6a65; --log-bg: #0e0e0d; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #2f2f2c;
+  --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e87; --accent: #3987e5;
+  --good-text: #4fcf4f; --warning-text: #fab219; --critical-text: #f07070;
+  --running: #3987e5; --neutral: #6b6a65; --log-bg: #0e0e0d; --shadow: none;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button {
+  font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); padding: 6px 12px;
+}
+button:hover { background: var(--surface-2); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.primary:hover { filter: brightness(1.08); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+
+header {
+  position: sticky; top: 0; z-index: 10; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.header-inner {
+  max-width: 1440px; margin: 0 auto; padding: 12px 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; min-width: 0; }
+.brand h1 { font-size: 17px; margin: 0; white-space: nowrap; }
+.brand .repo { color: var(--text-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-2); font-size: 12px; white-space: nowrap;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); flex: none; }
+.dot.good { background: var(--good); } .dot.bad { background: var(--critical); }
+.dot.warn { background: var(--warning); } .dot.run { background: var(--running); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.actions { display: flex; gap: 8px; align-items: center; }
+
+main { max-width: 1440px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+.banner {
+  padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-2); display: none;
+}
+.banner.show { display: block; }
+.banner.error { border-color: var(--critical); color: var(--critical-text); }
+
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); min-width: 0;
+}
+.kpi { padding: 14px 16px; }
+.kpi .label { color: var(--text-2); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.kpi .value { font-size: 24px; font-weight: 650; margin-top: 4px; display: flex; align-items: center; gap: 8px; }
+.kpi .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.card-head {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.card-head h2 { font-size: 14px; margin: 0; margin-right: auto; }
+.card-head .hint { color: var(--muted); font-size: 12px; }
+.card-body { padding: 14px 16px; }
+.empty { color: var(--muted); padding: 18px 16px; text-align: center; }
+
+/* status badge: icon + label, never colour alone */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent;
+}
+.badge .ic { font-size: 11px; line-height: 1; }
+.b-success { color: var(--good-text); background: color-mix(in srgb, var(--good) 13%, transparent); }
+.b-failure { color: var(--critical-text); background: color-mix(in srgb, var(--critical) 13%, transparent); }
+.b-drift { color: var(--warning-text); background: color-mix(in srgb, var(--warning) 18%, transparent); }
+.b-running { color: var(--running); background: color-mix(in srgb, var(--running) 13%, transparent); }
+.b-neutral { color: var(--text-2); background: var(--surface-2); }
+.spin { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* run detail */
+.run-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-2); font-size: 12.5px; margin-bottom: 12px; }
+.run-title { font-size: 15px; font-weight: 600; margin: 0 0 4px; overflow-wrap: anywhere; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.step {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) 150px 60px; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: 8px; cursor: pointer;
+}
+.step:hover { background: var(--surface-2); }
+.step.active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.step .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step .dur { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.step-ic {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; color: #fff; background: var(--neutral);
+}
+.step-ic.success { background: var(--good); } .step-ic.failure { background: var(--critical); }
+.step-ic.running { background: var(--running); } .step-ic.skipped { background: transparent; color: var(--muted); border: 1px dashed var(--neutral); }
+.step-ic.queued { background: transparent; border: 2px solid var(--neutral); }
+.gantt { position: relative; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.gantt span { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); min-width: 3px; }
+
+/* remediation flow */
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.node {
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px; text-align: center;
+  background: var(--surface-2); position: relative; min-width: 0;
+}
+.node .n-ic { font-size: 18px; height: 24px; }
+.node .n-name { font-size: 12.5px; font-weight: 600; margin-top: 2px; }
+.node .n-sub { font-size: 11.5px; color: var(--muted); }
+.node.success { border-color: var(--good); } .node.failed { border-color: var(--critical); }
+.node.drift { border-color: var(--warning); } .node.running { border-color: var(--running); }
+.node.skip { opacity: .5; }
+.drift-list { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.drift-list li { display: flex; gap: 8px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+details.stage { border-top: 1px solid var(--border); padding: 8px 0; }
+details.stage summary { cursor: pointer; font-size: 13px; color: var(--text-2); }
+pre.out {
+  background: var(--log-bg); color: var(--log-text); border-radius: 8px; padding: 10px;
+  max-height: 260px; overflow: auto; font: 12px/1.5 var(--mono); white-space: pre-wrap; margin: 8px 0 0;
+}
+
+/* infra table + runs table */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--text-2); font-weight: 600; font-size: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover { background: var(--surface-2); }
+tbody tr.selected { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+td.title-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muted { color: var(--muted); }
+
+/* run-history chart */
+.chart { position: relative; padding: 14px 16px 6px; }
+.chart svg { display: block; width: 100%; height: 150px; overflow: visible; }
+.chart .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); padding: 0 16px 12px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.tooltip {
+  position: fixed; z-index: 50; pointer-events: none; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.15); display: none; max-width: 280px;
+}
+
+/* timeline */
+.timeline { list-style: none; margin: 0; padding: 4px 16px 14px; max-height: 360px; overflow: auto; }
+.timeline li { display: grid; grid-template-columns: 16px 140px minmax(0, 1fr); gap: 8px; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed var(--border); }
+.timeline li:last-child { border-bottom: none; }
+.timeline .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* log viewer */
+.log-tools { display: flex; gap: 8px; align-items: center; }
+.log-tools input {
+  font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); width: 200px; max-width: 100%;
+}
+.log {
+  background: var(--log-bg); color: var(--log-text); font: 12px/1.55 var(--mono);
+  max-height: 480px; overflow: auto; border-radius: 0 0 12px 12px; padding: 8px 0;
+}
+.log div { padding: 0 14px; white-space: pre-wrap; overflow-wrap: anywhere; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
+.log .ln { color: #6f6e69; text-align: right; user-select: none; }
+.log .grp { color: #7fb4ff; font-weight: 600; }
+.log .err { color: #ff8a8a; background: rgba(208,59,59,.14); }
+.log .warn { color: #ffd166; }
+.log .ok { color: #7ee07e; }
+.log .hit { background: rgba(250,178,25,.22); }
+.log .target { outline: 1px solid #7fb4ff; }
+
+@media (max-width: 1100px) {
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .header-inner, main { padding-left: 16px; padding-right: 16px; }
+  .kpis { grid-template-columns: minmax(0, 1fr); }
+  .step { grid-template-columns: 26px minmax(0, 1fr) 54px; }
+  .step .gantt { display: none; }
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .timeline li { grid-template-columns: 16px minmax(0, 1fr); }
+  .timeline .when { grid-column: 2; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="3" width="20" height="7" rx="2" stroke="var(--accent)" stroke-width="2"/>
+        <rect x="2" y="14" width="20" height="7" rx="2" stroke="var(--accent)" stroke-width="2"/>
+        <circle cx="6.5" cy="6.5" r="1.3" fill="var(--good)"/><circle cx="6.5" cy="17.5" r="1.3" fill="var(--warning)"/>
+      </svg>
+      <div style="min-width:0">
+        <h1>Infra Drift Dashboard</h1>
+        <div class="repo" id="repo">Loading…</div>
+      </div>
+    </div>
+    <div class="chips">
+      <span class="chip" id="chip-gh"><span class="dot"></span>GitHub</span>
+      <span class="chip" id="chip-docker"><span class="dot"></span>Docker</span>
+      <span class="chip" id="chip-refresh"><span class="dot"></span>Auto-refresh</span>
+    </div>
+    <div class="actions">
+      <button id="theme-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+      <button id="refresh-btn" title="Refresh now">↻ Refresh</button>
+      <button id="run-btn" class="primary">▶ Run drift check</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="banner" id="banner"></div>
+
+  <section class="kpis">
+    <div class="card kpi"><div class="label">Infrastructure</div><div class="value" id="k-infra">—</div><div class="sub" id="k-infra-sub">&nbsp;</div></div>
+    <div class="card kpi"><div class="label">Latest workflow run</div><div class="value" id="k-last">—</div><div class="sub" id="k-last-sub">&nbsp;</div></div>
+    <div class="card kpi"><div class="label">Success rate</div><div class="value" id="k-rate">—</div><div class="sub" id="k-rate-sub">&nbsp;</div></div>
+    <div class="card kpi"><div class="label">Drift auto-corrected</div><div class="value" id="k-drift">—</div><div class="sub" id="k-drift-sub">&nbsp;</div></div>
+  </section>
+
+  <section class="grid-2">
+    <div class="card">
+      <div class="card-head">
+        <h2>Workflow run</h2>
+        <span id="run-badge"></span>
+        <a id="run-link" target="_blank" rel="noopener" class="hint" style="display:none">Open on GitHub ↗</a>
+      </div>
+      <div class="card-body" id="run-detail"><div class="empty">Loading workflow runs…</div></div>
+    </div>
+
+    <div style="display:grid; gap:16px; min-width:0">
+      <div class="card">
+        <div class="card-head"><h2>Remediation pipeline</h2><span class="hint" id="remed-hint"></span></div>
+        <div class="card-body" id="remed"><div class="empty">Loading…</div></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Live infrastructure</h2><span class="hint">main.tf vs Docker</span></div>
+        <div id="infra"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="log-card" style="display:none">
+    <div class="card-head">
+      <h2 id="log-title">Step logs</h2>
+      <div class="log-tools">
+        <input id="log-search" type="search" placeholder="Search logs…" aria-label="Search logs">
+        <button id="log-close">Close</button>
+      </div>
+    </div>
+    <div class="log" id="log"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Run history</h2><span class="hint">Duration of each workflow run, coloured by result</span></div>
+    <div class="chart" id="chart"></div>
+    <div class="legend">
+      <span><i style="background:var(--good)"></i>✓ Success</span>
+      <span><i style="background:var(--critical)"></i>✕ Failure</span>
+      <span><i style="background:var(--running)"></i>● In progress</span>
+      <span><i style="background:var(--neutral)"></i>– Cancelled / other</span>
+    </div>
+  </section>
+
+  <section class="grid-2">
+    <div class="card">
+      <div class="card-head"><h2>Workflow runs</h2><span class="hint" id="runs-hint"></span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Run</th><th>Status</th><th>Commit / title</th><th>Trigger</th><th>Actor</th><th>Started</th><th>Duration</th></tr></thead>
+          <tbody id="runs"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Drift history</h2><span class="hint">logs/drift_history.log</span></div>
+      <ul class="timeline" id="history"><li class="empty" style="display:block">Loading…</li></ul>
+    </div>
+  </section>
+</main>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const state = {
+  config: null, runs: [], selectedRunId: null, followLatest: true,
+  jobs: [], localRuns: [], currentLocal: null, infra: null, history: [],
+  logJobId: null, logText: "", logStep: null, timer: null,
+};
+
+// ---------- helpers ----------
+async function api(path, options) {
+  const res = await fetch(path, options);
+  const type = res.headers.get("content-type") || "";
+  const body = type.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(body.error || body || res.statusText);
+  return body;
+}
+
+function fmtDuration(ms) {
+  if (ms == null || isNaN(ms) || ms < 0) return "—";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m " + (s % 60) + "s";
+  return Math.floor(m / 60) + "h " + (m % 60) + "m";
+}
+function ago(iso) {
+  if (!iso) return "—";
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return Math.floor(diff / 60) + " min ago";
+  if (diff < 86400) return Math.floor(diff / 3600) + " h ago";
+  return Math.floor(diff / 86400) + " d ago";
+}
+const fmtTime = (iso) => iso ? new Date(iso).toLocaleString() : "—";
+function runDuration(run) {
+  const start = run.run_started_at || run.created_at;
+  const end = run.status === "completed" ? run.updated_at : new Date().toISOString();
+  return new Date(end) - new Date(start);
+}
+
+// GitHub status/conclusion -> visual kind
+function kindOf(status, conclusion) {
+  if (status && status !== "completed") return status === "in_progress" ? "running" : "queued";
+  if (conclusion === "success") return "success";
+  if (conclusion === "failure" || conclusion === "timed_out" || conclusion === "startup_failure") return "failure";
+  if (conclusion === "skipped") return "skipped";
+  return "neutral";
+}
+function badge(kind, label) {
+  const map = {
+    success: ["b-success", "✓", "Success"], failure: ["b-failure", "✕", "Failed"],
+    running: ["b-running", '<span class="spin">◌</span>', "Running"], queued: ["b-neutral", "◷", "Queued"],
+    drift: ["b-drift", "⚠", "Drift"], skipped: ["b-neutral", "⤼", "Skipped"], neutral: ["b-neutral", "–", "Cancelled"],
+  };
+  const [cls, ic, def] = map[kind] || map.neutral;
+  return `<span class="badge ${cls}"><span class="ic">${ic}</span>${esc(label || def)}</span>`;
+}
+function setChip(id, kind, text, title) {
+  const chip = $(id);
+  chip.innerHTML = `<span class="dot ${kind}"></span>${esc(text)}`;
+  chip.title = title || "";
+}
+function showBanner(message, isError) {
+  const b = $("banner");
+  b.className = "banner" + (message ? " show" : "") + (isError ? " error" : "");
+  b.innerHTML = message || "";
+}
+
+// ---------- data loading ----------
+async function loadConfig() {
+  state.config = await api("/api/config");
+  const c = state.config;
+  $("repo").innerHTML = c.repo
+    ? `<a href="https://github.com/${esc(c.repo)}/actions/workflows/${esc(c.workflow)}" target="_blank" rel="noopener">${esc(c.repo)}</a> · ${esc(c.workflow)}`
+    : "Repository not configured";
+  $("run-btn").disabled = !c.token;
+  $("run-btn").title = c.token ? "Trigger the workflow on GitHub (workflow_dispatch)" : "Add a GITHUB_TOKEN in dashboard/config.json to enable";
+  if (!c.repo) {
+    showBanner("GitHub repository not set. Create <code>dashboard/config.json</code> with <code>{\"GITHUB_REPO\": \"owner/name\"}</code> and restart the server — see dashboard/README.md.", true);
+  } else if (!c.token) {
+    showBanner("Running without a GitHub token: runs and steps are visible (public repos), but step logs and the Run button need a token. GitHub also limits anonymous use to 60 requests/hour.");
+  }
+}
+
+async function loadGitHub() {
+  if (!state.config?.repo) { setChip("chip-gh", "bad", "GitHub: not configured"); return; }
+  try {
+    const data = await api("/api/github/runs?per_page=30");
+    state.runs = data.runs;
+    const rl = data.rate_limit || {};
+    setChip("chip-gh", "good", "GitHub connected", rl.remaining != null ? `API requests left: ${rl.remaining}/${rl.limit}` : "");
+    $("runs-hint").textContent = `${data.total} total`;
+    if (state.followLatest && state.runs.length) state.selectedRunId = state.runs[0].id;
+    if (state.selectedRunId) {
+      const jobs = await api(`/api/github/runs/${state.selectedRunId}/jobs`);
+      state.jobs = jobs.jobs;
+    }
+  } catch (e) {
+    setChip("chip-gh", "bad", "GitHub error", e.message);
+    if (!state.runs.length) $("run-detail").innerHTML = `<div class="empty">Could not load workflow runs: ${esc(e.message)}</div>`;
+    throw e;
+  }
+}
+
+async function loadLocal() {
+  const [runs, infra, history] = await Promise.allSettled([
+    api("/api/local/runs"), api("/api/local/infra"), api("/api/local/history"),
+  ]);
+  if (runs.status === "fulfilled") { state.localRuns = runs.value.runs; state.currentLocal = runs.value.current; }
+  if (infra.status === "fulfilled") state.infra = infra.value;
+  if (history.status === "fulfilled") state.history = history.value.history;
+}
+
+async function refresh() {
+  let ghError = null;
+  await Promise.all([
+    loadGitHub().catch((e) => { ghError = e; }),
+    loadLocal(),
+  ]);
+  render();
+  if (ghError && state.config?.repo) showBanner("GitHub: " + esc(ghError.message), true);
+  else if (state.config?.repo && state.config?.token) showBanner("");
+  if (state.logJobId) loadLogs(state.logJobId, state.logStep, true);
+  schedule();
+}
+
+function schedule() {
+  clearTimeout(state.timer);
+  const active = state.runs.some((r) => r.status !== "completed") || state.currentLocal?.status === "running";
+  // Anonymous API use is limited to 60 req/h, so poll gently without a token.
+  const delay = active ? 5000 : (state.config?.token ? 15000 : 60000);
+  setChip("chip-refresh", active ? "run" : "good", active ? "Live · every 5s" : `Auto-refresh · ${delay / 1000}s`);
+  state.timer = setTimeout(refresh, delay);
+}
+
+// ---------- rendering ----------
+function render() {
+  renderKpis();
+  renderRunDetail();
+  renderRemediation();
+  renderInfra();
+  renderRuns();
+  renderChart();
+  renderHistory();
+}
+
+function infraHealth() {
+  const infra = state.infra;
+  if (!infra) return null;
+  if (!infra.docker || infra.error) return { kind: "neutral", label: "Unknown", sub: infra.error || "Docker unavailable" };
+  const problems = [];
+  for (const exp of infra.expected.containers) {
+    const actual = infra.containers.find((c) => c.name === exp.name);
+    if (!actual) problems.push(`${exp.name} missing`);
+    else if (actual.state !== "running") problems.push(`${exp.name} ${actual.state}`);
+    else if (exp.ports && !exp.ports.every((p) => (actual.ports || "").includes(p))) problems.push(`${exp.name} wrong ports`);
+  }
+  for (const net of infra.expected.networks) {
+    if (!infra.networks.find((n) => n.name === net.name)) problems.push(`${net.name} missing`);
+  }
+  return problems.length
+    ? { kind: "drift", label: "Drift", sub: problems.join(", ") }
+    : { kind: "success", label: "Healthy", sub: `${infra.expected.containers.length} containers running as defined` };
+}
+
+function renderKpis() {
+  const h = infraHealth();
+  if (h) {
+    $("k-infra").innerHTML = badge(h.kind, h.label);
+    $("k-infra-sub").textContent = h.sub; $("k-infra-sub").title = h.sub;
+    setChip("chip-docker", h.kind === "success" ? "good" : h.kind === "drift" ? "warn" : "bad",
+      h.kind === "neutral" ? "Docker unavailable" : "Docker connected", state.infra?.error || "");
+  }
+
+  const last = state.runs[0];
+  if (last) {
+    const kind = kindOf(last.status, last.conclusion);
+    $("k-last").innerHTML = `#${last.run_number} ${badge(kind)}`;
+    $("k-last-sub").textContent = `${ago(last.run_started_at || last.created_at)} · ${last.event} · ${fmtDuration(runDuration(last))}`;
+  } else if (state.config?.repo) {
+    $("k-last").textContent = "No runs";
+  }
+
+  const done = state.runs.filter((r) => r.status === "completed" && ["success", "failure", "timed_out"].includes(r.conclusion));
+  if (done.length) {
+    const ok = done.filter((r) => r.conclusion === "success").length;
+    $("k-rate").textContent = Math.round((ok / done.length) * 100) + "%";
+    $("k-rate-sub").textContent = `${ok} of ${done.length} recent completed runs`;
+  }
+
+  const corrected = state.localRuns.filter((r) => r.result === "corrected").length;
+  const detected = state.localRuns.filter((r) => r.drift?.length || ["corrected", "verify_failed", "correction_failed"].includes(r.result)).length;
+  const historyCorrected =state.history.filter((e) => /verification successful/i.test(e.message)).length;
+  const historyDetected = state.history.filter((e) => /drift detected/i.test(e.message) && !/no drift/i.test(e.message)).length;
+  $("k-drift").textContent = Math.max(corrected, historyCorrected);
+  const lastDrift = state.history.find((e) => /drift detected/i.test(e.message) && !/no drift/i.test(e.message));
+  $("k-drift-sub").textContent = `${Math.max(detected, historyDetected)} drift events detected` + (lastDrift ? ` · last ${lastDrift.time}` : "");
+}
+
+function renderRunDetail() {
+  const run = state.runs.find((r) => r.id === state.selectedRunId);
+  const el = $("run-detail");
+  if (!run) {
+    if (state.config?.repo && !state.runs.length) el.innerHTML = `<div class="empty">No runs of ${esc(state.config.workflow)} yet. Push to main or press “Run drift check”.</div>`;
+    $("run-badge").innerHTML = ""; $("run-link").style.display = "none";
+    return;
+  }
+  const kind = kindOf(run.status, run.conclusion);
+  $("run-badge").innerHTML = badge(kind);
+  $("run-link").href = run.html_url; $("run-link").style.display = "";
+
+  const commit = run.head_commit?.message?.split("\n")[0] || run.display_title || run.name;
+  let html = `<p class="run-title">#${run.run_number} · ${esc(commit)}</p>
+    <div class="run-meta">
+      <span>⚡ ${esc(run.event)}</span><span>⎇ ${esc(run.head_branch)}</span>
+      <span class="mono">${esc(run.head_sha?.slice(0, 7))}</span>
+      <span>👤 ${esc(run.actor?.login || run.triggering_actor?.login || "")}</span>
+      <span>🕒 ${esc(fmtTime(run.run_started_at || run.created_at))}</span>
+      <span>⏱ ${fmtDuration(runDuration(run))}</span>
+      ${state.followLatest ? '<span class="muted">following latest</span>' : '<a href="#" id="follow-latest">↩ follow latest</a>'}
+    </div>`;
+
+  if (!state.jobs.length) {
+    html += `<div class="empty">${run.status === "queued" ? "Waiting for the self-hosted runner to pick up this job… (is the runner online on the team laptop?)" : "No job data yet."}</div>`;
+  }
+  for (const job of state.jobs) {
+    const jStart = new Date(job.started_at).getTime();
+    const jEnd = job.completed_at ? new Date(job.completed_at).getTime() : Date.now();
+    const total = Math.max(jEnd - jStart, 1);
+    html += `<div style="display:flex;align-items:center;gap:8px;margin:6px 0 8px;flex-wrap:wrap">
+        <strong>Job: ${esc(job.name)}</strong> ${badge(kindOf(job.status, job.conclusion))}
+        <span class="muted" style="font-size:12px">runner: ${esc(job.runner_name || "waiting")}</span>
+        <span class="muted" style="font-size:12px;margin-left:auto">click a step to view its log</span>
+      </div><ol class="steps">`;
+    for (const step of job.steps || []) {
+      const sk = kindOf(step.status, step.conclusion);
+      const icon = { success: "✓", failure: "✕", running: '<span class="spin">◌</span>', skipped: "⤼", queued: "", neutral: "–" }[sk];
+      const s = step.started_at ? new Date(step.started_at).getTime() : null;
+      const e = step.completed_at ? new Date(step.completed_at).getTime() : (s ? Date.now() : null);
+      const left = s ? ((s - jStart) / total) * 100 : 0;
+      const width = s && e ? ((e - s) / total) * 100 : 0;
+      const color = sk === "failure" ? "var(--critical)" : sk === "running" ? "var(--running)" : sk === "success" ? "var(--good)" : "var(--neutral)";
+      const active = state.logJobId === job.id && state.logStep === step.number;
+      html += `<li class="step${active ? " active" : ""}" data-job="${job.id}" data-step="${step.number}" title="${esc(step.name)}">
+          <span class="step-ic ${sk}">${icon}</span>
+          <span class="name">${esc(step.name)}</span>
+          <span class="gantt"><span style="left:${left}%;width:${width}%;background:${color}"></span></span>
+          <span class="dur">${s ? fmtDuration(e - s) : ""}</span>
+        </li>`;
+    }
+    html += "</ol>";
+  }
+  el.innerHTML = html;
+  el.querySelectorAll(".step").forEach((li) =>
+    li.addEventListener("click", () => loadLogs(Number(li.dataset.job), Number(li.dataset.step))));
+  $("follow-latest")?.addEventListener("click", (ev) => { ev.preventDefault(); state.followLatest = true; refresh(); });
+}
+
+function localRunFor(ghRun) {
+  if (!ghRun) return null;
+  const id = String(ghRun.id);
+  if (state.currentLocal?.github?.run_id === id) return state.currentLocal;
+  return state.localRuns.find((r) => r.github?.run_id === id) || null;
+}
+
+function renderRemediation() {
+  const ghRun = state.runs.find((r) => r.id === state.selectedRunId);
+  let run = localRunFor(ghRun);
+  let hint = ghRun ? `for run #${ghRun.run_number}` : "";
+  if (!run) {
+    run = state.currentLocal || state.localRuns[0];
+    hint = run ? `latest local run (${run.started})` : "";
+  }
+  $("remed-hint").textContent = hint;
+  const el = $("remed");
+  if (!run) {
+    el.innerHTML = `<div class="empty">No remediation data yet.<br><span style="font-size:12px">It appears after <code>scripts/auto_remediate.py</code> runs in <code>${esc(state.config?.infra_dir || "")}</code>.</span></div>`;
+    return;
+  }
+  const stage = (key) => run.stages.find((s) => s.key === key);
+  const check = stage("check"), correct = stage("correct"), verify = stage("verify");
+  const node = (st, name, icons, subs) => {
+    if (!st) return { cls: "skip", ic: "○", name, sub: subs.skip };
+    const k = st.status;
+    return { cls: k === "success" ? "success" : k === "failed" ? "failed" : k === "drift" ? "drift" : "running",
+             ic: icons[k] || "●", name, sub: subs[k] || k };
+  };
+  const nodes = [
+    node(check, "Check state", { success: "✓", drift: "✓", failed: "✕", running: "◌" }, { success: "plan exit 0", drift: "plan exit 2", failed: "plan error", running: "terraform plan…", skip: "" }),
+    check ? (check.status === "drift"
+      ? { cls: "drift", ic: "⚠", name: "Drift", sub: `${run.drift.length} resource(s)` }
+      : check.status === "success" ? { cls: "success", ic: "✓", name: "Drift", sub: "none found" } : { cls: "skip", ic: "○", name: "Drift", sub: "" })
+      : { cls: "skip", ic: "○", name: "Drift", sub: "" },
+    node(correct, "Correct", { success: "✓", failed: "✕", running: "◌" }, { success: "terraform apply", failed: "apply failed", running: "applying…", skip: "not needed" }),
+    node(verify, "Verify", { success: "✓", failed: "✕", running: "◌" }, { success: "restored", failed: "still drifted", running: "re-checking…", skip: "not needed" }),
+  ];
+  const resultLabels = { healthy: ["success", "Healthy – no drift"], corrected: ["success", "Drift corrected"], verify_failed: ["failure", "Verification failed"], correction_failed: ["failure", "Correction failed"], error: ["failure", "Check error"] };
+  const [rk, rl] = run.status === "running" ? ["running", "Running"] : (resultLabels[run.result] || ["neutral", run.result]);
+
+  let html = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">${badge(rk, rl)}
+      <span class="muted" style="font-size:12px">${esc(run.started)} → ${esc(run.finished || "…")}</span></div>
+    <div class="flow">${nodes.map((n) => `<div class="node ${n.cls}"><div class="n-ic">${n.ic.includes("◌") ? '<span class="spin">◌</span>' : n.ic}</div><div class="n-name">${n.name}</div><div class="n-sub">${esc(n.sub)}</div></div>`).join("")}</div>`;
+  if (run.drift?.length) {
+    html += `<ul class="drift-list">${run.drift.map((d) => `<li>${badge("drift", d.action)} <code>${esc(d.resource)}</code></li>`).join("")}</ul>`;
+  }
+  for (const st of run.stages) {
+    if (!st.output) continue;
+    html += `<details class="stage"><summary>${esc(st.name)} — output (exit ${st.exit_code})</summary><pre class="out">${esc(st.output)}</pre></details>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderInfra() {
+  const infra = state.infra, el = $("infra");
+  if (!infra) return;
+  const rows = [];
+  for (const exp of infra.expected.containers) {
+    const a = infra.docker ? infra.containers.find((c) => c.name === exp.name) : null;
+    let kind, label;
+    if (!infra.docker || infra.error) { kind = "neutral"; label = "Unknown"; }
+    else if (!a) { kind = "failure"; label = "Missing"; }
+    else if (a.state !== "running") { kind = "drift"; label = a.state; }
+    else if (exp.ports && !exp.ports.every((p) => (a.ports || "").includes(p))) { kind = "drift"; label = "Wrong ports"; }
+    else { kind = "success"; label = "Running"; }
+    rows.push(`<tr><td><strong>${esc(exp.name)}</strong><div class="muted mono" style="font-size:11.5px">${esc(exp.resource)}</div></td>
+      <td>${badge(kind, label)}<div class="muted" style="font-size:11.5px;margin-top:2px">${esc(a?.status || "")}</div></td>
+      <td class="mono" style="font-size:12px">${esc(a?.image || exp.image || "")}<div class="muted">${esc(a?.ports || (exp.ports ? "ports " + exp.ports.join(", ") : ""))}</div></td></tr>`);
+  }
+  for (const net of infra.expected.networks) {
+    const ok = infra.networks.find((n) => n.name === net.name);
+    const kind = !infra.docker || infra.error ? "neutral" : ok ? "success" : "failure";
+    rows.push(`<tr><td><strong>${esc(net.name)}</strong><div class="muted mono" style="font-size:11.5px">${esc(net.resource)}</div></td>
+      <td>${badge(kind, kind === "neutral" ? "Unknown" : ok ? "Present" : "Missing")}</td><td class="muted">network ${esc(ok?.driver || "")}</td></tr>`);
+  }
+  el.innerHTML = (infra.error ? `<div class="empty" style="padding:10px 16px;text-align:left">⚠ ${esc(infra.error)} — live status is only available on the machine running Docker.</div>` : "")
+    + `<div class="table-wrap"><table><thead><tr><th>Resource</th><th>State</th><th>Image / ports</th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="3" class="empty">No resources found in main.tf</td></tr>'}</tbody></table></div>`;
+}
+
+function renderRuns() {
+  const tbody = $("runs");
+  if (!state.runs.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">${state.config?.repo ? "No workflow runs yet." : "Repository not configured."}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = state.runs.map((r) => {
+    const title = r.head_commit?.message?.split("\n")[0] || r.display_title;
+    return `<tr class="clickable${r.id === state.selectedRunId ? " selected" : ""}" data-id="${r.id}">
+      <td><strong>#${r.run_number}</strong>${r.run_attempt > 1 ? `<span class="muted"> (attempt ${r.run_attempt})</span>` : ""}</td>
+      <td>${badge(kindOf(r.status, r.conclusion))}</td>
+      <td class="title-cell" title="${esc(title)}">${esc(title)}</td>
+      <td>${esc(r.event)}</td>
+      <td>${esc(r.actor?.login || "")}</td>
+      <td title="${esc(fmtTime(r.run_started_at || r.created_at))}">${ago(r.run_started_at || r.created_at)}</td>
+      <td>${fmtDuration(runDuration(r))}</td></tr>`;
+  }).join("");
+  tbody.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", async () => {
+    state.selectedRunId = Number(tr.dataset.id);
+    state.followLatest = state.selectedRunId === state.runs[0]?.id;
+    state.jobs = [];
+    renderRuns(); renderRunDetail(); renderRemediation();
+    try { state.jobs = (await api(`/api/github/runs/${state.selectedRunId}/jobs`)).jobs; } catch (e) { showBanner(esc(e.message), true); }
+    renderRunDetail();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }));
+}
+
+function renderChart() {
+  const el = $("chart");
+  const runs = state.runs.slice(0, 30).reverse();
+  if (!runs.length) { el.innerHTML = '<div class="empty">No runs to chart yet.</div>'; return; }
+  const W = el.clientWidth - 32 || 800, H = 150, padL = 44, padB = 22, padT = 8;
+  const durations = runs.map((r) => runDuration(r) / 1000);
+  const max = Math.max(...durations, 1);
+  const niceMax = max <= 60 ? Math.ceil(max / 10) * 10 : Math.ceil(max / 60) * 60;
+  const plotW = W - padL, plotH = H - padB - padT;
+  const slot = plotW / runs.length, bw = Math.max(Math.min(slot - 4, 28), 3);
+  const colorOf = { success: "var(--good)", failure: "var(--critical)", running: "var(--running)", queued: "var(--running)" };
+  const ticks = [0, niceMax / 2, niceMax];
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Workflow run durations">`;
+  for (const t of ticks) {
+    const y = padT + plotH - (t / niceMax) * plotH;
+    svg += `<line x1="${padL}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
+      <text x="${padL - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${fmtDuration(t * 1000)}</text>`;
+  }
+  runs.forEach((r, i) => {
+    const h = Math.max((durations[i] / niceMax) * plotH, 2);
+    const x = padL + i * slot + (slot - bw) / 2, y = padT + plotH - h;
+    const kind = kindOf(r.status, r.conclusion);
+    // rounded data-end, square baseline
+    const rad = Math.min(4, bw / 2, h);
+    svg += `<g class="bar" data-i="${i}" style="cursor:pointer">
+      <rect x="${padL + i * slot}" y="${padT}" width="${slot}" height="${plotH}" fill="transparent"/>
+      <path d="M${x},${y + h} V${y + rad} Q${x},${y} ${x + rad},${y} H${x + bw - rad} Q${x + bw},${y} ${x + bw},${y + rad} V${y + h} Z"
+        fill="${colorOf[kind] || "var(--neutral)"}" ${r.id === state.selectedRunId ? 'stroke="var(--text)" stroke-width="1.5"' : ""}/></g>`;
+    if (runs.length <= 15 || i % Math.ceil(runs.length / 12) === 0 || i === runs.length - 1) {
+      svg += `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="11" fill="var(--muted)">#${r.run_number}</text>`;
+    }
+  });
+  svg += "</svg>";
+  el.innerHTML = svg;
+  const tip = $("tooltip");
+  el.querySelectorAll(".bar").forEach((g) => {
+    const r = runs[Number(g.dataset.i)];
+    g.addEventListener("mousemove", (ev) => {
+      tip.style.display = "block";
+      tip.style.left = Math.min(ev.clientX + 12, window.innerWidth - 290) + "px";
+      tip.style.top = ev.clientY + 12 + "px";
+      tip.innerHTML = `<strong>Run #${r.run_number}</strong> ${badge(kindOf(r.status, r.conclusion))}<br>
+        Duration: ${fmtDuration(runDuration(r))}<br>${esc(r.event)} · ${esc(fmtTime(r.run_started_at || r.created_at))}<br>
+        <span class="muted">${esc((r.head_commit?.message || r.display_title || "").split("\n")[0])}</span>`;
+    });
+    g.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    g.addEventListener("click", () => document.querySelector(`#runs tr[data-id="${r.id}"]`)?.click());
+  });
+}
+
+function renderHistory() {
+  const el = $("history");
+  if (!state.history.length) {
+    el.innerHTML = `<li style="display:block" class="empty">No drift history yet.</li>`;
+    return;
+  }
+  el.innerHTML = state.history.map((e) => {
+    const m = e.message.toLowerCase();
+    const ic = /fail|error|still has/.test(m) ? ["✕", "var(--critical-text)"]
+      : /no drift|healthy|successful/.test(m) ? ["✓", "var(--good-text)"]
+      : /drift detected/.test(m) ? ["⚠", "var(--warning-text)"]
+      : /correction completed/.test(m) ? ["⟳", "var(--accent)"] : ["•", "var(--muted)"];
+    return `<li><span style="color:${ic[1]};font-weight:700">${ic[0]}</span><span class="when">${esc(e.time)}</span><span>${esc(e.message)}</span></li>`;
+  }).join("");
+}
+
+// ---------- logs ----------
+async function loadLogs(jobId, stepNumber, silent) {
+  const changed = state.logJobId !== jobId;
+  state.logJobId = jobId; state.logStep = stepNumber;
+  const job = state.jobs.find((j) => j.id === jobId);
+  const step = job?.steps?.find((s) => s.number === stepNumber);
+  $("log-card").style.display = "";
+  $("log-title").textContent = `Logs · ${job?.name || "job"}${step ? " › " + step.name : ""}`;
+  document.querySelectorAll(".step").forEach((li) =>
+    li.classList.toggle("active", Number(li.dataset.job) === jobId && Number(li.dataset.step) === stepNumber));
+  if (!silent && changed) $("log").innerHTML = '<div><span></span><span>Loading logs…</span></div>';
+  try {
+    // logs only exist once the job finishes; skip refetching unchanged completed logs
+    if (silent && job?.status === "completed" && state.logText && !changed) return;
+    state.logText = await api(`/api/github/jobs/${jobId}/logs`);
+    renderLog(silent && !changed);
+  } catch (e) {
+    const msg = job && job.status !== "completed"
+      ? "Logs become available from GitHub when the job finishes. Watch the steps above for live progress."
+      : e.message;
+    $("log").innerHTML = `<div><span></span><span>${esc(msg)}</span></div>`;
+  }
+  if (!silent) $("log-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Locate the first log line of a step: GitHub logs mark each step with "##[group]Run ...".
+function stepLineIndex(lines, job, stepNumber) {
+  const steps = job?.steps || [];
+  const step = steps.find((s) => s.number === stepNumber);
+  if (!step) return 0;
+  if (step.name === "Set up job") return 0;
+  if (step.name === "Complete job") {
+    const i = lines.findIndex((l) => /Cleaning up orphan processes/.test(l));
+    return i >= 0 ? i : lines.length - 1;
+  }
+  const runIdx = lines.map((l, i) => (/##\[group\]Run /.test(l) ? i : -1)).filter((i) => i >= 0);
+  if (step.name.startsWith("Post ")) {
+    const post = lines.map((l, i) => (/Post job cleanup/.test(l) ? i : -1)).filter((i) => i >= 0);
+    const k = steps.filter((s) => s.name.startsWith("Post ") && s.number < stepNumber).length;
+    return post[k] ?? post[0] ?? 0;
+  }
+  const k = steps.filter((s) => s.number < stepNumber && !["Set up job", "Complete job"].includes(s.name) && !s.name.startsWith("Post ")).length;
+  return runIdx[k] ?? 0;
+}
+
+function renderLog(keepScroll) {
+  const box = $("log");
+  const prevScroll = box.scrollTop;
+  const q = $("log-search").value.trim().toLowerCase();
+  const lines = state.logText.replace(/\r/g, "").split("\n");
+  const job = state.jobs.find((j) => j.id === state.logJobId);
+  const target = stepLineIndex(lines, job, state.logStep);
+  box.innerHTML = lines.map((raw, i) => {
+    const line = raw.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z\s?/, "");
+    let cls = "";
+    if (/##\[error\]|STATUS: .*(fail|error)|VERIFICATION: .*still/i.test(line)) cls = "err";
+    else if (/##\[warning\]|Drift detected/i.test(line)) cls = "warn";
+    else if (/##\[group\]/.test(line)) cls = "grp";
+    else if (/STATUS: Infrastructure is healthy|restored successfully|correction completed/i.test(line)) cls = "ok";
+    if (q && line.toLowerCase().includes(q)) cls += " hit";
+    if (i === target) cls += " target";
+    const text = line.replace(/##\[(group|endgroup|error|warning|command|debug)\]/, (m, k) => (k === "group" ? "▸ " : k === "endgroup" ? "" : k.toUpperCase() + ": "));
+    return `<div class="${cls}" ${i === target ? 'id="log-target"' : ""}><span class="ln">${i + 1}</span><span>${esc(text)}</span></div>`;
+  }).join("");
+  if (keepScroll) box.scrollTop = prevScroll;
+  else {
+    const t = $("log-target");
+    box.scrollTop = t ? t.offsetTop - box.offsetTop - 8 : 0;
+  }
+}
+
+// ---------- actions ----------
+$("run-btn").addEventListener("click", async () => {
+  const btn = $("run-btn");
+  btn.disabled = true; btn.textContent = "Starting…";
+  try {
+    await api("/api/github/dispatch", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Dashboard": "1" },
+      body: JSON.stringify({ ref: state.runs[0]?.head_branch || "main" }),
+    });
+    showBanner("✓ Workflow triggered. It will appear below in a few seconds — the dashboard switches to live mode while it runs.");
+    state.followLatest = true;
+    setTimeout(refresh, 3000);
+  } catch (e) {
+    showBanner("Could not trigger workflow: " + esc(e.message), true);
+  } finally {
+    btn.disabled = !state.config?.token; btn.textContent = "▶ Run drift check";
+  }
+});
+$("refresh-btn").addEventListener("click", refresh);
+$("log-close").addEventListener("click", () => { state.logJobId = null; state.logStep = null; $("log-card").style.display = "none"; renderRunDetail(); });
+$("log-search").addEventListener("input", () => {
+  renderLog(true);
+  document.querySelector("#log .hit")?.scrollIntoView({ block: "center" });
+});
+
+function applyTheme(theme) {
+  if (theme) document.documentElement.dataset.theme = theme; else delete document.documentElement.dataset.theme;
+}
+try { applyTheme(localStorage.getItem("drift-theme")); } catch (e) {}
+$("theme-btn").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark";
+  applyTheme(next);
+  try { localStorage.setItem("drift-theme", next); } catch (e) {}
+});
+window.addEventListener("resize", () => renderChart());
+
+(async function init() {
+  try { await loadConfig(); } catch (e) { showBanner("Cannot reach the dashboard server: " + esc(e.message), true); return; }
+  refresh();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "GITHUB_REPO": "your-github-username/infra-drift",
+  "GITHUB_TOKEN": "github_pat_xxxxxxxxxxxxxxxxxxxx",
+  "INFRA_DIR": "C:\\Users\\Vaishnavi\\Desktop\\devops\\infra-drift",
+  "PORT": 8000
+}

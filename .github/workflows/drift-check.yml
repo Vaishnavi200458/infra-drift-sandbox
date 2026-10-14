@@ -1,0 +1,44 @@
+name: Infrastructure Drift Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  drift-check:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add Terraform to PATH
+        shell: powershell
+        run: |
+          echo "C:\Terraform" >> $env:GITHUB_PATH
+
+      - name: Add Docker to PATH
+        shell: powershell
+        run: |
+          echo "C:\DockerCLI" >> $env:GITHUB_PATH
+
+      - name: Add Python to PATH
+        shell: powershell
+        run: |
+          echo "C:\Python" >> $env:GITHUB_PATH
+
+      - name: Verify Terraform
+        run: terraform --version
+
+      - name: Verify Docker
+        run: docker --version
+
+      - name: Terraform Init
+        working-directory: C:\Users\Vaishnavi\Desktop\devops\infra-drift
+        run: terraform init
+
+      - name: Check Infrastructure
+        working-directory: C:\Users\Vaishnavi\Desktop\devops\infra-drift
+        run: python scripts/auto_remediate.py
